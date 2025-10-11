@@ -28,10 +28,16 @@ export default function DashboardLayout({
                 Sites
               </Link>
               <Link
-                href="/dashboard/settings"
+                href="/dashboard/content"
                 className="text-sm font-medium text-gray-700 hover:text-gray-900"
               >
-                Settings
+                Content
+              </Link>
+              <Link
+                href="/dashboard/alerts"
+                className="text-sm font-medium text-gray-700 hover:text-gray-900"
+              >
+                Alerts
               </Link>
             </div>
           </div>
