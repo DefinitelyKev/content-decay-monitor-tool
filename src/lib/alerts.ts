@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import prisma from './prisma'
 import { AlertType } from '@prisma/client'
+import { logger } from './logger'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -17,6 +18,8 @@ export async function sendDecayAlert(
   currentPosition: number,
   previousPosition: number
 ) {
+  logger.alert('Sending decay alert', { contentTitle, userEmail, currentPosition, previousPosition })
+
   try {
     // Create alert in database
     await prisma.alert.create({
@@ -27,12 +30,14 @@ export async function sendDecayAlert(
         message,
       },
     })
+    logger.info('Alert saved to database')
 
     // Send email notification
     if (process.env.RESEND_API_KEY) {
+      logger.info('Sending email via Resend', { to: userEmail })
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
-      await resend.emails.send({
+      const emailResult = await resend.emails.send({
         from: 'ContentDecay.io <onboarding@resend.dev>', // Use verified domain in production
         to: userEmail,
         subject: `⚠️ Content Decay Alert: ${contentTitle}`,
@@ -71,9 +76,12 @@ export async function sendDecayAlert(
           </div>
         `,
       })
+      logger.success('Email sent successfully', { emailId: emailResult.data?.id })
+    } else {
+      logger.warn('RESEND_API_KEY not configured - skipping email')
     }
   } catch (error) {
-    console.error('Error sending decay alert:', error)
+    logger.error('Error sending decay alert', error)
     // Don't throw - we still want the database alert even if email fails
   }
 }

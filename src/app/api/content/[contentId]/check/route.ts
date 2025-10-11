@@ -4,18 +4,23 @@ import prisma from '@/lib/prisma'
 import { checkRankings } from '@/lib/dataforseo'
 import { checkContentDecay } from '@/lib/decay-detection'
 import { sendDecayAlert, sendRecoveryAlert, sendWarningAlert } from '@/lib/alerts'
+import { logger } from '@/lib/logger'
 
 type RouteParams = { params: Promise<{ contentId: string }> }
 
 // POST /api/content/[contentId]/check - Manually check rankings for specific content
 export async function POST(req: Request, context: RouteParams) {
+  const startTime = Date.now()
   try {
     const { userId } = await auth()
     if (!userId) {
+      logger.warn('Unauthorized check attempt')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const { contentId } = await context.params
+    logger.api('POST', `/api/content/${contentId}/check`)
+    logger.info('Manual rank check initiated', { contentId, userId })
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
     })
@@ -49,11 +54,18 @@ export async function POST(req: Request, context: RouteParams) {
     const keywords = content.keywords.map((k) => k.keyword)
 
     if (keywords.length === 0) {
+      logger.warn('No keywords configured', { contentId })
       return NextResponse.json(
         { error: 'No keywords configured for this content' },
         { status: 400 }
       )
     }
+
+    logger.info('Checking rankings', {
+      domain: content.site.domain,
+      keywords,
+      contentTitle: content.title || content.url,
+    })
 
     // Check rankings via DataForSEO
     const rankings = await checkRankings(content.site.domain, keywords)
@@ -152,6 +164,14 @@ export async function POST(req: Request, context: RouteParams) {
       }
     }
 
+    const duration = Date.now() - startTime
+    logger.success('Manual rank check completed', {
+      contentId,
+      duration: `${duration}ms`,
+      keywordsChecked: keywords.length,
+      alertSent,
+    })
+
     return NextResponse.json({
       success: true,
       message: message || 'Rankings checked successfully',
@@ -160,7 +180,11 @@ export async function POST(req: Request, context: RouteParams) {
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
-    console.error('Error checking content rankings:', error)
+    const duration = Date.now() - startTime
+    logger.error('Error checking content rankings', {
+      error,
+      duration: `${duration}ms`,
+    })
     return NextResponse.json(
       {
         error: 'Failed to check rankings',

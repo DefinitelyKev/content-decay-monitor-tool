@@ -2,11 +2,15 @@ import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import { WebhookEvent } from '@clerk/nextjs/server'
 import prisma from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: Request) {
+  logger.info('🔔 Clerk webhook received')
+
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
 
   if (!WEBHOOK_SECRET) {
+    logger.error('CLERK_WEBHOOK_SECRET is not set')
     throw new Error('CLERK_WEBHOOK_SECRET is not set')
   }
 
@@ -39,8 +43,9 @@ export async function POST(req: Request) {
       'svix-timestamp': svix_timestamp,
       'svix-signature': svix_signature,
     }) as WebhookEvent
+    logger.info('Webhook signature verified')
   } catch (err) {
-    console.error('Error: Could not verify webhook:', err)
+    logger.error('Could not verify webhook signature', err)
     return new Response('Error: Verification error', {
       status: 400,
     })
@@ -48,6 +53,7 @@ export async function POST(req: Request) {
 
   // Handle the webhook
   const eventType = evt.type
+  logger.info('Processing webhook event', { eventType })
 
   if (eventType === 'user.created') {
     const { id, email_addresses } = evt.data
@@ -57,8 +63,11 @@ export async function POST(req: Request) {
     )
 
     if (!primaryEmail) {
+      logger.error('No primary email found in webhook data')
       return new Response('Error: No primary email', { status: 400 })
     }
+
+    logger.info('Creating user in database', { clerkId: id, email: primaryEmail.email_address })
 
     // Create user in database
     await prisma.user.create({
@@ -69,6 +78,7 @@ export async function POST(req: Request) {
       },
     })
 
+    logger.success('User created successfully', { clerkId: id, email: primaryEmail.email_address })
     return new Response('User created', { status: 200 })
   }
 
@@ -80,8 +90,11 @@ export async function POST(req: Request) {
     )
 
     if (!primaryEmail) {
+      logger.error('No primary email found for update')
       return new Response('Error: No primary email', { status: 400 })
     }
+
+    logger.info('Updating user in database', { clerkId: id })
 
     // Update user in database
     await prisma.user.update({
@@ -91,6 +104,7 @@ export async function POST(req: Request) {
       },
     })
 
+    logger.success('User updated successfully', { clerkId: id })
     return new Response('User updated', { status: 200 })
   }
 
@@ -98,16 +112,21 @@ export async function POST(req: Request) {
     const { id } = evt.data
 
     if (!id) {
+      logger.error('No user ID provided for deletion')
       return new Response('Error: No user ID', { status: 400 })
     }
+
+    logger.info('Deleting user from database', { clerkId: id })
 
     // Delete user from database
     await prisma.user.delete({
       where: { clerkId: id },
     })
 
+    logger.success('User deleted successfully', { clerkId: id })
     return new Response('User deleted', { status: 200 })
   }
 
+  logger.info('Unhandled webhook event type', { eventType })
   return new Response('Webhook received', { status: 200 })
 }

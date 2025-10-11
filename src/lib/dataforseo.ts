@@ -1,3 +1,5 @@
+import { logger } from './logger'
+
 interface RankingResult {
   keyword: string
   position: number | null
@@ -9,10 +11,13 @@ export async function checkRankings(
   keywords: string[],
   locationCode: number = 2840 // United States by default
 ): Promise<RankingResult[]> {
+  logger.rankCheck('Starting rank check', { domain, keywords, locationCode })
+
   const login = process.env.DATAFORSEO_LOGIN
   const password = process.env.DATAFORSEO_PASSWORD
 
   if (!login || !password) {
+    logger.error('DataForSEO credentials not configured')
     throw new Error('DataForSEO credentials not configured')
   }
 
@@ -27,6 +32,8 @@ export async function checkRankings(
   }))
 
   try {
+    logger.info('Sending request to DataForSEO API', { taskCount: tasks.length })
+
     const response = await fetch(
       'https://api.dataforseo.com/v3/serp/google/organic/live/advanced',
       {
@@ -40,12 +47,15 @@ export async function checkRankings(
     )
 
     if (!response.ok) {
+      logger.error('DataForSEO API HTTP error', { status: response.status, statusText: response.statusText })
       throw new Error(`DataForSEO API error: ${response.statusText}`)
     }
 
     const data = await response.json()
+    logger.debug('DataForSEO API response received', { statusCode: data.status_code })
 
     if (data.status_code !== 20000) {
+      logger.error('DataForSEO API returned error', { statusCode: data.status_code, message: data.status_message })
       throw new Error(`DataForSEO error: ${data.status_message}`)
     }
 
@@ -65,12 +75,16 @@ export async function checkRankings(
               item.domain === `www.${domain}`)
         )
 
+        const finalPosition = position >= 0 ? position + 1 : null
+        logger.rankCheck(`Keyword "${keyword}" - Position: ${finalPosition || 'Not found'}`)
+
         results.push({
           keyword,
-          position: position >= 0 ? position + 1 : null,
+          position: finalPosition,
           url: domain,
         })
       } else {
+        logger.warn(`No results found for keyword: ${keyword}`)
         // No results found
         results.push({
           keyword,
@@ -80,9 +94,10 @@ export async function checkRankings(
       }
     }
 
+    logger.success('Rank check completed', { resultsCount: results.length })
     return results
   } catch (error) {
-    console.error('Error checking rankings:', error)
+    logger.error('Error checking rankings', error)
     throw error
   }
 }

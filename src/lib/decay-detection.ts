@@ -1,4 +1,5 @@
 import { ContentStatus } from '@prisma/client'
+import { logger } from './logger'
 
 interface DecayCheckResult {
   status: ContentStatus
@@ -22,8 +23,16 @@ export function checkContentDecay(
   highestPosition: number | null,
   previousStatus: ContentStatus = 'HEALTHY'
 ): DecayCheckResult {
+  logger.decay('Checking content decay', {
+    currentPosition,
+    previousPosition,
+    highestPosition,
+    previousStatus,
+  })
+
   // No position data yet
   if (currentPosition === null) {
+    logger.decay('No position data available')
     return {
       status: 'HEALTHY',
       shouldAlert: false,
@@ -34,6 +43,7 @@ export function checkContentDecay(
 
   // First check - no previous data
   if (previousPosition === null) {
+    logger.decay('First ranking check', { position: currentPosition })
     return {
       status: 'HEALTHY',
       shouldAlert: false,
@@ -46,11 +56,18 @@ export function checkContentDecay(
   const positionDrop = currentPosition - previousPosition // Positive = dropped, Negative = improved
   const dropFromBest = highestPosition ? currentPosition - highestPosition : 0
 
+  logger.decay('Position analysis', {
+    positionDrop,
+    dropFromBest,
+    change: positionDrop > 0 ? 'dropped' : 'improved',
+  })
+
   // RECOVERED: Improved 3+ positions from a WARNING/DECAYING state
   if (
     positionDrop <= -3 &&
     (previousStatus === 'WARNING' || previousStatus === 'DECAYING')
   ) {
+    logger.success('Content recovered!', { improvement: Math.abs(positionDrop) })
     return {
       status: 'RECOVERED',
       shouldAlert: true,
@@ -66,6 +83,7 @@ export function checkContentDecay(
         ? `dropped ${positionDrop} positions`
         : `dropped ${dropFromBest} positions from your best ranking (#${highestPosition})`
 
+    logger.warn('Content is DECAYING', { reason, positionDrop, dropFromBest })
     return {
       status: 'DECAYING',
       shouldAlert: true,
@@ -76,6 +94,7 @@ export function checkContentDecay(
 
   // WARNING: Dropped 3-4 positions
   if (positionDrop >= 3) {
+    logger.warn('Content has WARNING status', { positionDrop })
     return {
       status: 'WARNING',
       shouldAlert: true,
@@ -87,6 +106,7 @@ export function checkContentDecay(
   // HEALTHY: Stable or minor changes
   if (positionDrop !== 0) {
     const direction = positionDrop > 0 ? 'dropped' : 'improved'
+    logger.info(`Content is HEALTHY (${direction})`, { positionDrop })
     return {
       status: 'HEALTHY',
       shouldAlert: false,
@@ -95,6 +115,7 @@ export function checkContentDecay(
     }
   }
 
+  logger.info('Content is HEALTHY (stable)')
   return {
     status: 'HEALTHY',
     shouldAlert: false,
